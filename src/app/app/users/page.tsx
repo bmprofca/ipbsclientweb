@@ -19,6 +19,22 @@ type UserRow = {
   isActive: boolean;
   sipPasswordSet?: boolean;
   phoneMode?: CallFrom;
+  crmLinkCount?: number;
+  crmLinkId?: string;
+  crmUserId?: string;
+  crmToken?: string;
+  crmTokenPrefix?: string;
+};
+
+type CrmLinkRow = {
+  id: string;
+  crmUserId: string;
+  label: string;
+  tokenPrefix: string;
+  token?: string;
+  extension: string;
+  lastUsedAt: string | null;
+  createdAt: string;
 };
 
 function initials(name: string) {
@@ -43,6 +59,12 @@ export default function UsersPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [phones, setPhones] = useState<UserRow | null>(null);
+  const [linking, setLinking] = useState<UserRow | null>(null);
+  const [links, setLinks] = useState<CrmLinkRow[]>([]);
+  const [mintedToken, setMintedToken] = useState("");
+  const [crmUserId, setCrmUserId] = useState("");
+  const [crmLabel, setCrmLabel] = useState("");
+  const [copiedId, setCopiedId] = useState("");
   const [phoneMode, setPhoneMode] = useState<CallFrom>("desk");
   const [menuId, setMenuId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -174,15 +196,116 @@ export default function UsersPage() {
     await refresh();
   }
 
+  async function openCrmLink(u: UserRow) {
+    setError("");
+    setMintedToken("");
+    setCrmUserId("");
+    setCrmLabel("");
+    setCopiedId("");
+    setLinking(u);
+    try {
+      setLinks(await api<CrmLinkRow[]>(`/users/${u.id}/crm-links`));
+    } catch (err) {
+      setLinks([]);
+      setError(err instanceof Error ? err.message : "Could not load CRM links");
+    }
+  }
+
+  async function mintCrmLink(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!linking) return;
+    setBusy(true);
+    setError("");
+    setCopiedId("");
+    try {
+      const minted = await api<{ token: string }>(`/users/${linking.id}/crm-links`, {
+        method: "POST",
+        body: JSON.stringify({ crmUserId, label: crmLabel }),
+      });
+      setMintedToken(minted.token);
+      setLinks(await api<CrmLinkRow[]>(`/users/${linking.id}/crm-links`));
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create CRM link");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeCrmLink(linkId: string) {
+    if (!linking) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/users/${linking.id}/crm-links/${linkId}`, { method: "DELETE" });
+      if (mintedToken) setMintedToken("");
+      setLinks(await api<CrmLinkRow[]>(`/users/${linking.id}/crm-links`));
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not revoke token");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rotateModalLink(linkId: string) {
+    if (!linking) return;
+    setBusy(true);
+    setError("");
+    try {
+      const rotated = await api<{ token: string }>(`/users/${linking.id}/crm-links/${linkId}/rotate`, {
+        method: "POST",
+      });
+      setMintedToken(rotated.token);
+      setLinks(await api<CrmLinkRow[]>(`/users/${linking.id}/crm-links`));
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not regenerate token");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyValue(id: string, value: string) {
+    if (!value) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedId(id);
+  }
+
+  async function generateRowToken(u: UserRow) {
+    if (!u.extension) {
+      setError("Map a PBX extension on this user first.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (u.crmLinkId) {
+        await api(`/users/${u.id}/crm-links/${u.crmLinkId}/rotate`, { method: "POST" });
+      } else {
+        await api(`/users/${u.id}/crm-links`, {
+          method: "POST",
+          body: JSON.stringify({ crmUserId: u.mobile || u.email || u.id, label: u.name }),
+        });
+      }
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not generate CRM token");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <>
+    <div className="users-page">
       <div className="user-toolbar">
         <div>
           <p className="eyebrow">Access</p>
           <h1 className="page-title">Users & extensions</h1>
           <p className="muted">
             People in {org?.name || "this business"} only. Mobile number is the unique login ID (OTP 123456 until SMS
-            is connected). Map a login to one PBX extension.{" "}
+            is connected). Map a login to one PBX extension, then issue a CRM link token so the third-party CRM user
+            can dial and hang up on that extension.{" "}
             {org ? `${org.seatsUsed} of ${org.seats} seats used` : `${rows.length} people`} ·{" "}
             {rows.filter((u) => u.isActive).length} active
           </p>
@@ -209,11 +332,12 @@ export default function UsersPage() {
       </div>
       {error ? <p className="error">{error}</p> : null}
 
-      <section className="people-table">
+      <section className="people-table users-table">
         <div className="people-head">
           <span>User</span>
           <span>Role</span>
           <span>Extension</span>
+          <span>CRM token</span>
           <span>Phone</span>
           <span>Status</span>
           <span className="align-right">Actions</span>
@@ -231,6 +355,59 @@ export default function UsersPage() {
               <span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span>
             </div>
             <div className="ext-read">{u.extension || "—"}</div>
+            <div className="token-cell">
+              {u.crmToken ? (
+                <>
+                  <code className="token-chip" title={u.crmToken}>
+                    {u.crmToken}
+                  </code>
+                  <div className="token-actions">
+                    <button
+                      type="button"
+                      className="btn ghost btn-tiny"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void copyValue(u.id, u.crmToken || "");
+                      }}
+                    >
+                      {copiedId === u.id ? "Copied" : "Copy"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost btn-tiny"
+                      disabled={busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void generateRowToken(u);
+                      }}
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+                </>
+              ) : u.crmLinkId ? (
+                <div className="token-actions">
+                  <span className="muted">Hidden</span>
+                  <button
+                    type="button"
+                    className="btn ghost btn-tiny"
+                    disabled={busy}
+                    onClick={() => void generateRowToken(u)}
+                  >
+                    Show new
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="btn ghost btn-tiny"
+                  disabled={busy || !u.extension}
+                  onClick={() => void generateRowToken(u)}
+                >
+                  Generate
+                </button>
+              )}
+            </div>
             <div>
               <span className={`pill ${u.phoneMode === "sip" ? "idle" : "live"}`}>
                 {phoneModeLabel(u.phoneMode)}
@@ -268,6 +445,15 @@ export default function UsersPage() {
                       }}
                     >
                       Manage phones
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMenuId(null);
+                        void openCrmLink(u);
+                      }}
+                    >
+                      Link CRM user
                     </button>
                     <button
                       type="button"
@@ -456,6 +642,111 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-    </>
+      {linking && (
+        <div className="modal-back" onClick={() => setLinking(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>CRM link · {linking.name}</h2>
+            <p className="muted">
+              Bind this IPBS login ({linking.mobile || linking.email}) and extension{" "}
+              <b>{linking.extension || "unmapped"}</b> to one CRM user. Store the token on that CRM user. Click-to-call
+              and hangup then always use this extension — the CRM does not send email or extension on each request.
+            </p>
+            {!linking.extension ? (
+              <p className="error">Map a PBX extension on this user first.</p>
+            ) : (
+              <form onSubmit={mintCrmLink}>
+                <label className="field">
+                  <span>CRM user id</span>
+                  <input
+                    value={crmUserId}
+                    onChange={(e) => setCrmUserId(e.target.value)}
+                    required
+                    autoFocus
+                    placeholder="id from the third-party CRM"
+                  />
+                </label>
+                <label className="field">
+                  <span>Label (optional)</span>
+                  <input
+                    value={crmLabel}
+                    onChange={(e) => setCrmLabel(e.target.value)}
+                    placeholder="CRM display name"
+                  />
+                </label>
+                <div className="btn-row">
+                  <button className="btn" disabled={busy}>
+                    {busy ? "Creating…" : "Create link token"}
+                  </button>
+                  <button type="button" className="btn ghost" onClick={() => setLinking(null)}>
+                    Close
+                  </button>
+                </div>
+              </form>
+            )}
+            {mintedToken ? (
+              <div className="token-reveal">
+                <p>
+                  This token stays on the user profile. Copy it for the CRM as <code>X-Agent-Token</code>. Regenerating
+                  replaces the old value (reconnect the CRM with the new token).
+                </p>
+                <code className="token-value">{mintedToken}</code>
+                <button
+                  className="btn ghost btn-tiny"
+                  type="button"
+                  onClick={() => void copyValue("minted", mintedToken)}
+                >
+                  {copiedId === "minted" ? "Copied" : "Copy token"}
+                </button>
+              </div>
+            ) : null}
+            {links.length > 0 ? (
+              <div className="link-list">
+                <p className="muted">Active CRM links — copy anytime, or regenerate to reconnect</p>
+                {links.map((row) => (
+                  <div key={row.id} className="link-row">
+                    <div>
+                      <b>{row.label || row.crmUserId}</b>
+                      <code className="token-inline">{row.token || `${row.tokenPrefix}…`}</code>
+                      <span className="muted">
+                        {row.crmUserId} · ext {row.extension || "—"}
+                      </span>
+                    </div>
+                    <div className="btn-row">
+                      {row.token ? (
+                        <button
+                          type="button"
+                          className="btn ghost btn-tiny"
+                          onClick={() => void copyValue(row.id, row.token || "")}
+                        >
+                          {copiedId === row.id ? "Copied" : "Copy"}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="btn ghost btn-tiny"
+                        disabled={busy}
+                        onClick={() => void rotateModalLink(row.id)}
+                      >
+                        Regenerate
+                      </button>
+                      <button
+                        type="button"
+                        className="btn ghost btn-tiny"
+                        disabled={busy}
+                        onClick={() => void revokeCrmLink(row.id)}
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No CRM users linked yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

@@ -73,7 +73,6 @@ export default function DashboardPage() {
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [clock, setClock] = useState("");
 
   async function load() {
     const [dash, dir] = await Promise.all([
@@ -86,16 +85,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     void load().catch(() => undefined);
-    const id = setInterval(() => {
-      setClock(
-        new Date().toLocaleString(undefined, {
-          weekday: "short",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      );
-    }, 1000);
-    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
@@ -145,15 +134,6 @@ export default function DashboardPage() {
             {greeting()}, {user?.name?.split(" ")[0]}
           </p>
           <h1>Operations dashboard</h1>
-        </div>
-        <div className="dash-meta">
-          <span className={`pill ${data?.pbx.ok ? "live" : "dead"}`}>
-            PBX {data?.org.pbxMode || "…"} {data?.pbx.ok ? "online" : "check"}
-          </span>
-          <span className={`pill ${user?.extension ? "live" : "ring"}`}>
-            Your ext {user?.extension || "unmapped"}
-          </span>
-          <span className="muted">{clock}</span>
         </div>
       </div>
 

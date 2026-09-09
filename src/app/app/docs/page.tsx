@@ -64,6 +64,11 @@ export default function ApiDocsPage() {
       bulkStart: `curl -X POST ${base}/v1/campaigns \\\n  ${h} \\\n  -d "{\\"groupName\\":\\"CRM leads\\",\\"extension\\":\\"1001\\",\\"reset\\":true}"`,
       bulkStatus: `curl "${base}/v1/campaigns?extension=1001" \\\n  -H "X-API-Key: ${key}"`,
       bulkStop: `curl -X POST ${base}/v1/campaigns/stop \\\n  ${h} \\\n  -d "{\\"extension\\":\\"1001\\"}"`,
+      mintLink: `curl -X POST ${base}/v1/users/USER_ID/crm-links \\\n  ${h} \\\n  -d "{\\"crmUserId\\":\\"crm-user-42\\",\\"label\\":\\"Mubarak CRM login\\"}"`,
+      agentDial: `curl -X POST ${base}/v1/call \\\n  -H "Content-Type: application/json" \\\n  -H "X-Agent-Token: ipbsu_YOUR_LINK_TOKEN" \\\n  -d "{\\"action\\":\\"dial\\",\\"phone\\":\\"6026840554\\",\\"autoanswer\\":true}"`,
+      agentHangup: `curl -X POST ${base}/v1/call \\\n  -H "Content-Type: application/json" \\\n  -H "X-Agent-Token: ipbsu_YOUR_LINK_TOKEN" \\\n  -d "{\\"action\\":\\"hangup\\"}"`,
+      agentSoftphone: `curl ${base}/v1/softphone \\\n  -H "X-Agent-Token: ipbsu_YOUR_LINK_TOKEN"`,
+      agentLive: `curl ${base}/v1/calls/live \\\n  -H "X-Agent-Token: ipbsu_YOUR_LINK_TOKEN"`,
     };
   }, [base, key]);
 
@@ -95,7 +100,10 @@ export default function ApiDocsPage() {
         <div className="maps-toolbar">
           <div>
             <h3>Connection</h3>
-            <p className="muted">Send <code>X-API-Key</code> on every partner request. Do not put the key in a public app.</p>
+            <p className="muted">
+              Send <code>X-API-Key</code> from the CRM server, or <code>X-Agent-Token</code> for one linked CRM user +
+              extension. Do not put the org key in a public app.
+            </p>
           </div>
           <div className="seg-tabs">
             <button type="button" className={useCloud ? "" : "on"} onClick={() => setUseCloud(false)}>
@@ -174,10 +182,12 @@ export default function ApiDocsPage() {
               ["Live legs", "GET /v1/calls/live", "", "live"],
               ["Users", "GET /v1/users", "", "users"],
               ["Create / map user", "POST /v1/users", "PATCH /v1/users/:id", "userCreate"],
+              ["Link CRM user token", "POST /v1/users/:id/crm-links", "returns ipbsu_…", "mintLink"],
+              ["Dial as linked CRM user", "POST /v1/call", "X-Agent-Token", "agentDial"],
               ["PBX extensions", "GET /v1/extensions", "", "extensions"],
               ["Import CRM contacts", "POST /v1/contacts/import", "", "importContacts"],
               ["Bulk campaign", "POST /v1/campaigns", "", "bulkStart"],
-              ["Softphone session", "GET /v1/softphone", "?extension=1001", "softphone"],
+              ["Softphone session", "GET /v1/softphone", "X-Agent-Token", "agentSoftphone"],
               ["Inbound / screen-pop", "POST /v1/call", "action=receive", "receive"],
               ["Health", "GET /health", "", ""],
             ] as const
@@ -188,7 +198,13 @@ export default function ApiDocsPage() {
                 <code>{path}</code>
                 {extra ? <code>{extra}</code> : null}
               </div>
-              <span className="muted">{copyId === "" ? "none" : "X-API-Key"}</span>
+              <span className="muted">
+                {copyId === "agentDial" || copyId === "agentHangup" || copyId === "agentSoftphone" || copyId === "agentLive"
+                  ? "X-Agent-Token"
+                  : copyId === ""
+                    ? "none"
+                    : "X-API-Key"}
+              </span>
               <div className="align-right">
                 {copyId ? (
                   <button
@@ -206,15 +222,15 @@ export default function ApiDocsPage() {
           ))}
           <div className="docs-callout" style={{ margin: 16 }}>
             <b>Phone numbers.</b> Send 10 digits (example <code>6026840554</code>). The API stores and dials with a
-            leading <code>0</code>. Identify the agent with <code>extension</code> (preferred) or{" "}
-            <code>userEmail</code>.
+            leading <code>0</code>. For org API key, identify the agent with <code>extension</code> or{" "}
+            <code>userEmail</code>. For a linked CRM user, send only <code>X-Agent-Token</code>.
           </div>
         </section>
       )}
 
       {tab === "auth" && (
         <section className="panel docs-panel">
-          <h3>Two authentication methods</h3>
+          <h3>Three authentication methods</h3>
           <table className="table">
             <thead>
               <tr>
@@ -230,6 +246,16 @@ export default function ApiDocsPage() {
                   Header <code>X-API-Key</code>
                 </td>
                 <td>Server-to-server. No user login. No delay. This is the partner API.</td>
+              </tr>
+              <tr>
+                <td>One CRM user mapped to one IPBS login + extension</td>
+                <td>
+                  Header <code>X-Agent-Token</code>
+                </td>
+                <td>
+                  Store <code>ipbsu_…</code> on the CRM user. Dial, hangup, live, and softphone always use that
+                  extension.
+                </td>
               </tr>
               <tr>
                 <td>This web console or a custom agent UI</td>
@@ -248,7 +274,42 @@ export default function ApiDocsPage() {
           </p>
           <pre className="inbound-pre">{`X-API-Key: ${key}`}</pre>
 
-          <h3 style={{ marginTop: 24 }}>2. JWT access token (console / custom UI)</h3>
+          <h3 style={{ marginTop: 24 }}>2. CRM user link token (per agent)</h3>
+          <ol className="docs-flow">
+            <li>
+              Map the IPBS user to a PBX extension on <b>Users &amp; extensions</b> (example: Mubarak Ali →{" "}
+              <code>1001</code>).
+            </li>
+            <li>
+              On <b>Users &amp; extensions</b> open the CRM token column (or Profile), generate the token, and copy it.
+            </li>
+            <li>
+              Save <code>ipbsu_…</code> on that CRM user. Send it as <code>X-Agent-Token</code> (or{" "}
+              <code>Authorization: Bearer ipbsu_…</code>). Do not send <code>extension</code> or{" "}
+              <code>userEmail</code> — the token already pins both.
+            </li>
+            <li>
+              Dial: <code>POST /v1/call</code> with <code>{`{ "action": "dial", "phone": "6026840554" }`}</code>. Hang
+              up with <code>action=hangup</code>. Softphone: <code>GET /v1/softphone</code>.
+            </li>
+          </ol>
+          <div className="btn-row" style={{ margin: "12px 0 8px" }}>
+            <button className="btn ghost" type="button" onClick={() => void copy("mintLink", samples.mintLink)}>
+              {copied === "mintLink" ? "Copied mint" : "Copy mint"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentDial", samples.agentDial)}>
+              {copied === "agentDial" ? "Copied dial" : "Copy CRM dial"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentHangup", samples.agentHangup)}>
+              {copied === "agentHangup" ? "Copied hangup" : "Copy CRM hangup"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentSoftphone", samples.agentSoftphone)}>
+              {copied === "agentSoftphone" ? "Copied softphone" : "Copy CRM softphone"}
+            </button>
+          </div>
+          <pre className="inbound-pre">{samples.agentDial}</pre>
+
+          <h3 style={{ marginTop: 24 }}>3. JWT access token (console / custom UI)</h3>
           <ol className="docs-flow">
             <li>
               <b>Login</b> — <code>POST /auth/otp/request</code> then <code>POST /auth/login</code> with the
@@ -282,7 +343,7 @@ export default function ApiDocsPage() {
           <p className="muted" style={{ marginTop: 12 }}>
             Login response includes <code>user.extension</code>, <code>user.phoneMode</code> (<code>desk</code> or{" "}
             <code>sip</code>), and <code>sipPasswordSet</code>. Full SIP password is only on <code>GET /auth/me</code>{" "}
-            (JWT) or <code>GET /v1/softphone</code> (API key).
+            (JWT) or <code>GET /v1/softphone</code> (<code>X-Agent-Token</code> or org API key).
           </p>
           <div className="docs-callout">
             <b>Realtime.</b> Connect Socket.IO to the same API host with{" "}
@@ -299,23 +360,33 @@ export default function ApiDocsPage() {
           </h3>
           <p className="muted">
             One endpoint for outbound dial, hang up, and inbound receive. Alias still works:{" "}
-            <code>POST /v1/click-to-call</code> (dial only).
+            <code>POST /v1/click-to-call</code> (dial only). A linked CRM user should send{" "}
+            <code>X-Agent-Token</code> and omit <code>extension</code> / <code>userEmail</code>.
           </p>
           <div className="btn-row" style={{ margin: "12px 0 8px" }}>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentDial", samples.agentDial)}>
+              {copied === "agentDial" ? "Copied CRM dial" : "Copy CRM dial"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentHangup", samples.agentHangup)}>
+              {copied === "agentHangup" ? "Copied CRM hangup" : "Copy CRM hangup"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentLive", samples.agentLive)}>
+              {copied === "agentLive" ? "Copied CRM live" : "Copy CRM live"}
+            </button>
             <button className="btn ghost" type="button" onClick={() => void copy("dial", samples.dial)}>
-              {copied === "dial" ? "Copied dial" : "Copy dial"}
+              {copied === "dial" ? "Copied dial" : "Copy org dial"}
             </button>
             <button className="btn ghost" type="button" onClick={() => void copy("hangup", samples.hangup)}>
-              {copied === "hangup" ? "Copied hangup" : "Copy hangup"}
+              {copied === "hangup" ? "Copied hangup" : "Copy org hangup"}
             </button>
             <button className="btn ghost" type="button" onClick={() => void copy("receive", samples.receive)}>
               {copied === "receive" ? "Copied receive" : "Copy receive"}
             </button>
             <button className="btn ghost" type="button" onClick={() => void copy("live", samples.live)}>
-              {copied === "live" ? "Copied live" : "Copy live"}
+              {copied === "live" ? "Copied live" : "Copy org live"}
             </button>
           </div>
-          <pre className="inbound-pre">{samples.dial}</pre>
+          <pre className="inbound-pre">{samples.agentDial}</pre>
 
           <h4 style={{ margin: "20px 0 8px" }}>action=dial</h4>
           <p className="muted">
@@ -389,14 +460,19 @@ export default function ApiDocsPage() {
                   <code>extension</code>
                 </td>
                 <td>all</td>
-                <td>Agent SIP extension (example 1001).</td>
+                <td>
+                  Agent SIP extension (example 1001). Omit when using <code>X-Agent-Token</code>.
+                </td>
               </tr>
               <tr>
                 <td>
                   <code>userEmail</code>
                 </td>
                 <td>all</td>
-                <td>Alternate way to pick the agent.</td>
+                <td>
+                  Alternate way to pick the agent with the org API key. Omit when using{" "}
+                  <code>X-Agent-Token</code>.
+                </td>
               </tr>
               <tr>
                 <td>
@@ -643,32 +719,47 @@ export default function ApiDocsPage() {
         <section className="panel docs-panel">
           <h3>Softphone for a third-party CRM</h3>
           <p className="muted">
-            This platform cannot SIP-register on your CRM server. The agent&apos;s <b>browser</b> must REGISTER (JsSIP)
-            with a microphone. After that, your CRM dials with the same <code>POST /v1/call</code> — no extra step in
-            this console.
+            SIP REGISTER must happen in the agent&apos;s <b>browser</b> (JsSIP + microphone). IPBS does not register SIP
+            on the CRM server. Prefer the CRM link token already on Users — it pins that IPBS login and extension (for
+            example Mubarak Ali · 1001).
           </p>
           <ol className="docs-flow">
             <li>
-              Map a SIP extension and store the Neron SIP password (Extensions → Add softphone, or Profile).
+              Map the extension and SIP password on the IPBS user (Users &amp; extensions, or Profile).
             </li>
             <li>
-              Your CRM backend calls <code>GET /v1/softphone?extension=1001</code> with the org API key. Never expose
-              the org key in the browser; pass only the returned <code>sip</code> object to the agent page.
+              Store <code>ipbsu_…</code> on the CRM user (Users → CRM token). Send it as <code>X-Agent-Token</code>. Do
+              not send <code>extension</code> or <code>userEmail</code> on each call.
             </li>
             <li>
-              On the agent page, create a JsSIP UA (WebSocket + REGISTER). Keep that tab open.
+              CRM page: <code>GET /v1/softphone</code> with that token, then JsSIP REGISTER using the returned{" "}
+              <code>sip.uri</code>, <code>sip.wsUri</code>, and <code>sip.password</code>. Keep the tab open.
             </li>
             <li>
-              On “Call” in the CRM, your backend <code>POST /v1/call</code> <code>action=dial</code>. The already
-              registered UA rings at once.
+              CRM Call button: <code>POST /v1/call</code> <code>{`{ "action": "dial", "phone": "6026840554" }`}</code>{" "}
+              with the same <code>X-Agent-Token</code>. Hang up with <code>action=hangup</code>. Live legs:{" "}
+              <code>GET /v1/calls/live</code>.
+            </li>
+            <li>
+              If the CRM page is HTTPS, PBX <code>sipWsUrl</code> must be <code>wss://…</code>.
             </li>
           </ol>
+          <p className="muted">
+            Org <code>X-API-Key</code> still works from a CRM <b>backend</b> (
+            <code>GET /v1/softphone?extension=1001</code>). Do not put the org key in the CRM browser.
+          </p>
           <div className="btn-row" style={{ margin: "12px 0 8px" }}>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentSoftphone", samples.agentSoftphone)}>
+              {copied === "agentSoftphone" ? "Copied" : "Copy GET /v1/softphone"}
+            </button>
+            <button className="btn ghost" type="button" onClick={() => void copy("agentDial", samples.agentDial)}>
+              {copied === "agentDial" ? "Copied dial" : "Copy POST /v1/call"}
+            </button>
             <button className="btn ghost" type="button" onClick={() => void copy("softphone", samples.softphone)}>
-              {copied === "softphone" ? "Copied" : "Copy GET /v1/softphone"}
+              {copied === "softphone" ? "Copied org" : "Copy org-key session"}
             </button>
           </div>
-          <pre className="inbound-pre">{samples.softphone}</pre>
+          <pre className="inbound-pre">{samples.agentSoftphone}</pre>
           <h4 style={{ margin: "20px 0 8px" }}>Example response</h4>
           <pre className="inbound-pre">{`{
   "agent": { "email": "admin", "extension": "1001", "phoneMode": "sip" },
@@ -677,11 +768,17 @@ export default function ApiDocsPage() {
     "username": "1001",
     "authorizationUser": "1001",
     "password": "<neron sip password>",
-    "displayName": "Priya Shah",
+    "displayName": "Mubarak Ali",
     "host": "PBX_HOST",
-    "wsUri": "ws://PBX_HOST:8088/ws",
+    "wsUri": "wss://PBX_HOST:8089/ws",
     "register": true,
     "registerExpires": 300
+  },
+  "dial": {
+    "method": "POST",
+    "path": "/v1/call",
+    "header": "X-Agent-Token",
+    "body": { "action": "dial", "phone": "6026840554", "autoanswer": true }
   }
 }`}</pre>
           <h4 style={{ margin: "20px 0 8px" }}>JsSIP (agent browser)</h4>
@@ -704,13 +801,12 @@ ua.start();`}</pre>
           </div>
           <h4 style={{ margin: "20px 0 8px" }}>One-line click-to-call widget</h4>
           <p className="muted">
-            Loads from this API. Binds any <code>[data-ipbs-call]</code> button. Still uses the org API key — prefer
-            your CRM backend for production.
+            <code>GET /widget.js</code> with <code>data-agent-token</code> only <b>dials</b>. It does not embed a
+            softphone UI — the CRM must run JsSIP itself (or the agent uses a desk phone).
           </p>
           <pre className="inbound-pre">{`<script src="${base}/widget.js"
   data-api="${base}"
-  data-key="${key}"
-  data-user-email="admin"></script>
+  data-agent-token="ipbsu_YOUR_LINK_TOKEN"></script>
 <button data-ipbs-call data-phone="6026840554">Call</button>`}</pre>
         </section>
       )}

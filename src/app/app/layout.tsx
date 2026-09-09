@@ -8,6 +8,7 @@ import { CallProvider, useCalls } from "@/lib/calls";
 import { SoftphoneProvider } from "@/lib/softphone";
 import { Softphone } from "@/components/Softphone";
 import { VoicePrompt } from "@/components/VoicePrompt";
+import { TopBar } from "@/components/TopBar";
 
 const LINKS = [
   { href: "/app", label: "Dashboard", icon: "grid", roles: ["owner", "admin", "supervisor", "agent"] },
@@ -198,23 +199,6 @@ function lastLabel(state: string, cause: string) {
   return state || "Ended";
 }
 
-function TrialBanner({ iso }: { iso: string }) {
-  const days = Math.ceil((Date.parse(iso) - Date.now()) / (24 * 60 * 60 * 1000));
-  if (Number.isNaN(days) || days > 7) return null;
-  if (days <= 0) {
-    return (
-      <div className="sub-banner lock">
-        Trial has ended. Open Subscription to keep this business active.
-      </div>
-    );
-  }
-  return (
-    <div className="sub-banner">
-      Trial ends in {days} day{days === 1 ? "" : "s"}. Add users and PBX settings stay inside this company.
-    </div>
-  );
-}
-
 function navActive(path: string, href: string) {
   if (href === "/app") return path === "/app";
   return path === href || path.startsWith(`${href}/`);
@@ -326,13 +310,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="stage">
-        {org?.locked ? (
-          <div className="sub-banner lock">
-            This business subscription is inactive. Agents cannot sign in. Open Subscription to review the plan.
-          </div>
-        ) : org?.status === "trial" && org.trialEndsAt ? (
-          <TrialBanner iso={org.trialEndsAt} />
-        ) : null}
+        <TopBar />
         <div className="main">{children}</div>
         {calls.popup && (
           <div className="call-toast" role="status">

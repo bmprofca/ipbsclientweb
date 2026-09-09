@@ -112,12 +112,12 @@ export default function CrmPage() {
   const base = publicBase(host);
   const clickUrl = `${base}/v1/click-to-call`;
   const callUrl = `${base}/v1/call`;
-  const softphoneUrl = `${base}/v1/softphone?extension=1001`;
+  const softphoneUrl = `${base}/v1/softphone`;
   const inboxUrl = `${base}/v1/crm/inbox`;
   const widgetUrl = `${base}/widget.js`;
   const liveHost = normalizeHost(publicHost) || "onesaas.in";
   const liveBase = publicBase(liveHost);
-  const snippet = `<script src="${liveBase}/widget.js" data-api="${liveBase}" data-key="${apiKey || org.crmApiKey}" data-user-email="agent@onesaas.in"></script>
+  const snippet = `<script src="${liveBase}/widget.js" data-api="${liveBase}" data-agent-token="ipbsu_PASTE_AGENT_TOKEN"></script>
 <button data-ipbs-call data-phone="9876543210" data-crm-id="CRM-1001">Call</button>`;
 
   const tableRows: Array<[string, string, string?]> = [
@@ -155,18 +155,30 @@ export default function CrmPage() {
 
       <section className="hint-panel">
         <p>
-          <b>Softphone URL (CRM embed):</b> <code>GET {softphoneUrl}</code> with header <code>X-API-Key</code>. Change{" "}
-          <code>1001</code> to the agent extension (or use <code>?userEmail=admin</code>). Response{" "}
-          <code>sip.uri</code> / <code>sip.wsUri</code> / <code>sip.password</code> is what JsSIP registers. That is
-          not click-to-call, not the widget, and not the webhook secret.
+          <b>CRM user link token:</b> On <a href="/app/users">Users &amp; extensions</a> open <b>Link CRM user</b> for
+          the IPBS login (example: Mubarak Ali · extension 1001). Enter the third-party CRM user id and copy{" "}
+          <code>ipbsu_…</code>. Store that token on the CRM user. Dial and hang up with header{" "}
+          <code>X-Agent-Token</code> — the call always uses the mapped extension. Prefer this over putting the org API
+          key in the CRM browser.
         </p>
       </section>
       <section className="hint-panel">
         <p>
-          <b>Place the call</b> after the browser is registered: <code>POST {callUrl}</code> body{" "}
-          <code>{`{ "action": "dial", "phone": "6026840554", "extension": "1001" }`}</code>. Desk phones can skip
-          GET /v1/softphone and only POST dial. Inbound hunt is <code>{base}/v1/inbound/resolve</code>. Screen-pop is
-          the other way: IPBS POSTs to your CRM webhook URL (optional secret).
+          <b>Softphone session:</b> <code>GET {softphoneUrl}</code> with header <code>X-Agent-Token</code>. Response{" "}
+          <code>sip.uri</code> / <code>sip.wsUri</code> / <code>sip.password</code> is what JsSIP registers in the
+          agent browser. Org <code>X-API-Key</code> still works from a CRM backend with{" "}
+          <code>?extension=1001</code>. That is not click-to-call, not the widget, and not the webhook secret. There is
+          no iframe / drop-in softphone UI — the CRM must run JsSIP itself.
+        </p>
+      </section>
+      <section className="hint-panel">
+        <p>
+          <b>Place the call</b> after the browser is registered (or the desk set is registered):{" "}
+          <code>POST {callUrl}</code> body{" "}
+          <code>{`{ "action": "dial", "phone": "6026840554" }`}</code> with the same <code>X-Agent-Token</code>. Hang up
+          with <code>action=hangup</code>. Live legs: <code>GET {base}/v1/calls/live</code>. Widget{" "}
+          <code>GET /widget.js</code> with <code>data-agent-token</code> only dials. Screen-pop is the other way: IPBS
+          POSTs to your CRM webhook URL (optional secret).
         </p>
       </section>
 
@@ -258,8 +270,8 @@ export default function CrmPage() {
                       />
                     </label>
                     <p className="hint-box">
-                      Softphone session: <code>{liveBase}/v1/softphone?extension=1001</code>. Dial:{" "}
-                      <code>{liveBase}/v1/call</code>. Widget (buttons only):{" "}
+                      Softphone session: <code>{liveBase}/v1/softphone</code> with{" "}
+                      <code>X-Agent-Token</code>. Dial: <code>{liveBase}/v1/call</code>. Widget (buttons only):{" "}
                       <code>{liveBase}/widget.js</code>
                     </p>
                   </div>

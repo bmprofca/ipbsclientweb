@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useCalls, type CallFrom } from "@/lib/calls";
@@ -11,6 +11,101 @@ import { SipRegisterHint } from "@/components/SipRegisterHint";
 
 function roleLabel(role: string) {
   return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+type CrmLink = {
+  id: string;
+  crmUserId: string;
+  label: string;
+  token?: string;
+  tokenPrefix: string;
+  extension: string;
+};
+
+function CrmTokenCard({
+  mobile,
+  extension,
+}: {
+  userId: string;
+  mobile: string;
+  extension: string;
+}) {
+  const [links, setLinks] = useState<CrmLink[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState("");
+
+  async function reload() {
+    setLinks(await api<CrmLink[]>("/auth/crm-links"));
+  }
+
+  useEffect(() => {
+    void reload().catch((e) => setError(e instanceof Error ? e.message : "Could not load CRM token"));
+  }, []);
+
+  async function copy(id: string, token: string) {
+    await navigator.clipboard.writeText(token);
+    setCopied(id);
+  }
+
+  async function generate() {
+    setBusy(true);
+    setError("");
+    try {
+      const first = links[0];
+      if (first) {
+        await api(`/auth/crm-links/${first.id}/rotate`, { method: "POST" });
+      } else {
+        await api("/auth/crm-links", {
+          method: "POST",
+          body: JSON.stringify({ crmUserId: mobile, label: "CRM user" }),
+        });
+      }
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not generate token");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const link = links[0];
+  const token = link?.token || "";
+
+  return (
+    <section className="people-table" style={{ marginBottom: 16 }}>
+      <div className="dir-toolbar">
+        <div>
+          <h3>CRM link token</h3>
+          <p className="muted">
+            Stored on this profile for reconnecting the third-party CRM user to extension {extension || "—"}. Send as{" "}
+            <code>X-Agent-Token</code>. Regenerating replaces the old token.
+          </p>
+        </div>
+      </div>
+      {error ? <p className="error" style={{ padding: "0 22px" }}>{error}</p> : null}
+      <div className="kv-row">
+        <span className="kv-label">Token</span>
+        <span className="kv-value kv-with-action">
+          {token ? <code className="token-inline">{token}</code> : <span className="muted">Not generated yet</span>}
+          {token ? (
+            <button className="btn ghost btn-tiny" type="button" onClick={() => void copy("token", token)}>
+              {copied === "token" ? "Copied" : "Copy"}
+            </button>
+          ) : null}
+          <button className="btn ghost btn-tiny" type="button" disabled={busy || !extension} onClick={() => void generate()}>
+            {busy ? "Saving…" : token ? "Regenerate" : "Generate token"}
+          </button>
+        </span>
+      </div>
+      {link ? (
+        <div className="kv-row">
+          <span className="kv-label">CRM user id</span>
+          <span className="kv-value">{link.label ? `${link.label} · ${link.crmUserId}` : link.crmUserId}</span>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 export default function ProfilePage() {
@@ -137,6 +232,8 @@ export default function ProfilePage() {
           <SipRegisterHint extension={user.extension} host={phone.sipHost} wsUrl={phone.sipWsUrl} />
         </div>
       </section>
+
+      <CrmTokenCard userId={user.id} mobile={user.mobile || user.email} extension={user.extension} />
 
       <section className="people-table">
         <div className="dir-toolbar">
